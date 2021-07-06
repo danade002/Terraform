@@ -1,0 +1,96 @@
+image:
+  name: hashicorp/terraform:light
+  entrypoint:
+    - '/usr/bin/env'
+    - 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+
+default:
+  tags:
+    - docker
+
+# Default output file for Terraform plan
+variables:
+  PLAN: plan.tfplan
+  JSON_PLAN_FILE: tfplan.json
+  TF_IN_AUTOMATION: "true"
+  
+cache:
+  key: "$CI_COMMIT_SHA"
+  paths:
+    - .terraform
+
+before_script:
+  - terraform --version
+  - terraform init -reconfigure
+
+stages:
+  - validate
+  - plan
+  - apply
+  - destroy
+
+validate:
+  stage: validate
+  script:
+    - terraform validate
+
+  only:
+    - branches
+    - merge_requests
+
+merge review:
+  stage: plan
+  script:
+    - terraform plan -out=$PLAN
+    - "terraform show --json $PLAN | convert_report > $JSON_PLAN_FILE"
+  artifacts:
+    expire_in: 2 week
+    name: plan
+    reports:
+        terraform: $JSON_PLAN_FILE
+  only:
+    - merge_requests
+
+plan production:
+  stage: plan
+  script:
+
+    - terraform plan
+  only:
+    - master
+  resource_group: production
+
+apply:
+  stage: apply
+  script:
+ 
+    - terraform apply -auto-approve
+ 
+  dependencies:
+    - plan production
+  artifacts:
+    expire_in: 2 week
+    name: $CI_COMMIT_REF_SLUG
+        
+  only:
+    - master
+  resource_group: production
+ # environment:
+ #   name: production
+ #   on_stop: destroy
+ #   auto_stop_in: 24 hours
+
+
+
+destroy:
+  stage: destroy
+  needs: []
+  script:
+    - terraform destroy -auto-approve
+  when: manual
+  only:
+    - master  
+  environment:
+    name: production
+    action: stop
+
